@@ -1,4 +1,4 @@
-# saladict-ztools
+# ztools-saladict
 
 > 沙拉查词 - 聚合词典专业查词翻译（ZTools 版）
 
@@ -21,12 +21,12 @@
 ├── preload/
 │   ├── services.js               # 注入到页面的工具服务（读写文件等）
 │   └── package.json              # 标记 preload 目录的模块类型
+├── build-plugin.sh              # 一键构建脚本（安装依赖、构建模拟器、路径替换、打包输出到 dist/）
 ├── ext-saladic/                  # Saladict 原始扩展内容
 │   ├── manifest.json             # 扩展清单
 │   ├── *.html                    # quick-search / notebook / history / options / word-editor 等页面
 │   ├── assets/                   # 扩展打包后的 JS/CSS/图片资源
-│   ├── _locales/                 # 国际化文案
-│   └── _metadata/                # 扩展元数据
+│   └── _locales/                 # 国际化文案
 └── webextensions-emulator-master/ # WebExtensions 模拟器子工程
     ├── lib/                      # 模拟器源码
     └── dist/                     # 由该子工程构建出来的运行产物
@@ -58,60 +58,51 @@
   - WebExtensions API 模拟器。
   - 它负责把 `browser.runtime`、`browser.tabs`、`browser.windows`、`browser.storage` 等浏览器扩展接口映射到 ZTools 能运行的环境中。
 
-## 为什么 `dist` 在 `webextensions-emulator-master/` 里
+## 构建产物说明
 
-`dist` 不在项目根目录下，是因为它不是主项目单独编译出来的公共产物，而是 **`webextensions-emulator-master` 这个子工程自身的构建输出**。
+项目有两级 `dist` 目录：
 
-这个子工程的 `webpack.config.js` 里明确把输出路径写成了：
+- **`webextensions-emulator-master/dist/`** — 模拟器子工程的 webpack 构建输出（`core.js`、`background.js`），源码在 `lib/` 目录
+- **`dist/`**（项目根目录） — `build-plugin.sh` 的一键构建输出，包含插件运行所需的全部文件，用于发布
 
-```js
-output: {
-  filename: '[name].js',
-  path: path.resolve(__dirname, 'dist')
-}
+`index.html` 直接引用模拟器产物的路径：
+
+```text
+webextensions-emulator-master/dist/core.js
+webextensions-emulator-master/dist/background.js
 ```
 
-因此：
+## 构建与安装
 
-- 构建时产物会直接输出到 `webextensions-emulator-master/dist/`
-- 根目录的 `index.html` 也是直接引用这个路径：
-  - `webextensions-emulator-master/dist/core.js`
-  - `webextensions-emulator-master/dist/background.js`
-
-这是一种“子工程内构建、主工程引用”的结构，便于把模拟器源码与 Saladict 主体资源隔离管理。
-
-## 安装与启动
-
-### 1. 安装依赖
+### 一键构建
 
 在项目根目录执行：
 
 ```bash
-npm install
+bash build-plugin.sh
 ```
 
-如果你使用的是 pnpm，也可以：
+脚本会自动完成：安装依赖 → 构建模拟器 → 路径替换 → esbuild 打包 preload → 输出到 `dist/`
+
+### 手动构建
 
 ```bash
+# 1. 安装根目录依赖
 pnpm install
+
+# 2. 安装并构建模拟器
+cd webextensions-emulator-master
+pnpm install
+pnpm run build
+cd ..
+
+# 3. 执行路径替换
+node webextensions-emulator-master/replace_url.js
 ```
 
-### 2. 构建模拟器
+### 启动 ZTools 插件
 
-进入 `webextensions-emulator-master` 目录后执行：
-
-```bash
-npm run build
-```
-
-构建完成后会生成：
-
-- `webextensions-emulator-master/dist/core.js`
-- `webextensions-emulator-master/dist/background.js`
-
-### 3. 启动 ZTools 插件
-
-把整个 `ztools-saladic` 目录放到 ZTools 的插件目录后：
+把构建产物 `dist/` 目录放到 ZTools 的插件目录后：
 
 1. 重启 ZTools，或刷新插件列表
 2. 输入「沙拉查词」或「saladict」触发插件
@@ -134,12 +125,6 @@ ZTools -> index.html -> webextensions-emulator-master/dist/core.js -> 加载 Sal
 ```
 
 Saladict 页面再通过模拟器调用 `browser.runtime`、`browser.tabs`、`browser.windows` 等接口，从而实现原始浏览器扩展的运行效果。
-
-## 资源清理说明
-
-- 根目录 `logo.png` 当前未被 `plugin.json` 或运行代码引用。
-- 插件实际图标使用的是 `ext-saladic/assets/icon-128.png`。
-- 因此 `logo.png` 属于可删除的冗余资源。
 
 ## 致谢
 
