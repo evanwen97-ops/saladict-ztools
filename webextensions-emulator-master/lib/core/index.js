@@ -16,35 +16,59 @@ let localStorageData, indexedDBData, versionData;
 let latestVersion = '7.21.0'
 var currentPayload = '';
 
+// 通知 iframe 搜索新词（防抖，避免 onPluginEnter + onPluginReady 重复触发）
+var _searchDebounceTimer = null;
+function notifyIframeSearch(text) {
+    if (_searchDebounceTimer) clearTimeout(_searchDebounceTimer);
+    _searchDebounceTimer = setTimeout(function() {
+        _searchDebounceTimer = null;
+        if (!text) return;
+        var qsIframe = document.querySelector('.iframe-wrap iframe');
+        if (qsIframe) {
+            try {
+                qsIframe.contentWindow.postMessage({ type: 'saladict-search', text: text }, '*');
+            } catch(e) {}
+        }
+    }, 100);
+}
+
+// 更新 execCommand paste 命令
+function updatePasteCommand() {
+    document.execCommand = function (cmd) {
+        if(cmd == 'copy'){
+            let textArea = document.querySelectorAll('textarea');
+            textArea = textArea[textArea.length - 1];
+            let text = textArea.value;
+            ztools.copyText(text)
+        }else if(cmd == 'paste'){
+            document.getElementById("saladict-paste").value = currentPayload
+        }
+    }
+}
+
 ztools.onPluginEnter(({ code, type, payload }) => {
-    console.log('ztools.onPluginEnter')
-    // let clipboardText = clipboard.readText();
+    console.log('ztools.onPluginEnter', payload)
     if (payload == "沙拉查词" || payload == "saladict") {
         payload = ''
     }
+    currentPayload = payload || '';
     enterEventListener = () => {
         openIframe('ext-saladic/quick-search.html', { hideCloseBtn: true })
-        document.execCommand = function (cmd) {
-            // console.log("document.execCommand -> cmd", cmd,payload)
-            // let clipboardText = clipboard.readText();
-            // let queryStr = payload || clipboardText;
-            if(cmd == 'copy'){
-                let textArea = document.querySelectorAll('textarea');
-                textArea = textArea[textArea.length - 1];
-                let text = textArea.value;
-                ztools.copyText(text)
-            }else if(cmd == 'paste'){
-                document.getElementById("saladict-paste").value = payload
-            }
-        }
+        updatePasteCommand();
     }
     if (inited) {
-        enterEventListener();
+        var qsIframe = document.querySelector('.iframe-wrap iframe');
+        if (qsIframe && currentPayload) {
+            notifyIframeSearch(currentPayload);
+        } else if (!qsIframe) {
+            enterEventListener();
+        }
+        updatePasteCommand();
     }
-
 })
 
 async function init() {
+    if (inited) return; // 防止重复初始化
     ztools.db.remove("indexedDBData")
     localStorageData = new ztoolsStorage('localStorageData');
     indexedDBData = new ztoolsStorage('indexedDBDataV2');
@@ -87,10 +111,18 @@ async function init() {
             if (!text) return;
             currentPayload = text;
             document.getElementById("saladict-paste").value = text;
+            // 通过 postMessage 通知 iframe 搜索新词（不依赖 contentDocument）
             try {
                 var qsIframe = document.querySelector('.iframe-wrap iframe');
-                if (qsIframe && qsIframe.contentDocument) {
-                    var searchBox = qsIframe.contentDocument.querySelector('.menuBar-SearchBox');
+                if (qsIframe) {
+                    qsIframe.contentWindow.postMessage({ type: 'saladict-search', text: text }, '*');
+                }
+            } catch(e) {}
+            // 备用：尝试直接操作 iframe DOM
+            try {
+                var qsIframe2 = document.querySelector('.iframe-wrap iframe');
+                if (qsIframe2 && qsIframe2.contentDocument) {
+                    var searchBox = qsIframe2.contentDocument.querySelector('.menuBar-SearchBox');
                     if (searchBox) {
                         var nativeSetter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value').set;
                         nativeSetter.call(searchBox, text);
@@ -115,7 +147,12 @@ ztools.onPluginReady((params) => {
         }
         currentPayload = payload;
     }
-    init()
+    if (!inited) {
+        init()
+    } else if (currentPayload) {
+        notifyIframeSearch(currentPayload);
+        updatePasteCommand();
+    }
 })
 // 模拟install事件
 function mockOnInstalled(){

@@ -150,6 +150,30 @@ const options = [
     return p(c).then(function(r){var b=typeof r.data==='object'?JSON.stringify(r.data):String(r.data);return new Response(b,{status:r.status,statusText:r.statusText,headers:new Headers(r.headers)})}).catch(function(e){if(e.response){var b=typeof e.response.data==='object'?JSON.stringify(e.response.data):String(e.response.data);return new Response(b,{status:e.response.status,statusText:e.response.statusText,headers:new Headers(e.response.headers)})}return Promise.reject(e)});
   };
   console.log('[iframe-proxy] fetch patched');
+
+  // === postMessage 搜索词监听 ===
+  // 接收父窗口发来的搜索词，设置搜索框并触发搜索
+  window.addEventListener('message', function(evt) {
+    if (!evt.data || evt.data.type !== 'saladict-search') return;
+    var text = evt.data.text;
+    if (!text) return;
+    console.log('[iframe-proxy] received search:', text);
+    // 等待搜索框出现（React 渲染需要时间）
+    function trySetSearch(attempt) {
+      var searchBox = document.querySelector('.menuBar-SearchBox');
+      if (searchBox) {
+        var nativeSetter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value').set;
+        nativeSetter.call(searchBox, text);
+        searchBox.dispatchEvent(new Event('input', { bubbles: true }));
+        searchBox.dispatchEvent(new Event('change', { bubbles: true }));
+        searchBox.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', code: 'Enter', keyCode: 13, bubbles: true }));
+        console.log('[iframe-proxy] search box set:', text);
+      } else if (attempt < 20) {
+        setTimeout(function() { trySetSearch(attempt + 1); }, 100);
+      }
+    }
+    trySetSearch(0);
+  });
 })();
 </script>`
   },
